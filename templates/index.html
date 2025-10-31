@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Chat Assistant</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #f5f5f5;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            display: flex;
+            min-height: 100vh;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-right: 1px solid #333;
+            overflow-y: auto;
+            height: 100vh;
+            flex-shrink: 0;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 1;
+        }
+        .sidebar h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            color: #00bcd4;
+        }
+        .sidebar ul {
+            list-style: none;
+            padding: 0;
+        }
+        .sidebar li {
+            padding: 8px;
+            border-bottom: 1px solid #333;
+            color: #ccc;
+        }
+        .main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .header {
+            padding: 10px 20px;
+            border-bottom: 1px solid #333;
+            background-color: #1e1e1e;
+        }
+        .chat {
+            flex: 1 1 0;
+            padding: 20px;
+            overflow-y: auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .msg-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 4px;
+        }
+        .msg-container.right {
+            align-items: flex-end;
+        }
+        .msg-timestamp {
+            font-size: 0.85em;
+            color: #aaa;
+            margin-bottom: 2px;
+            margin-left: 6px;
+            margin-right: 6px;
+            user-select: none;
+            letter-spacing: 1px;
+        }
+        .msg-timestamp.left {
+            align-self: flex-start;
+            text-align: left;
+        }
+        .msg-timestamp.right {
+            align-self: flex-end;
+            text-align: right;
+        }
+        .message {
+            margin-bottom: 12px;
+            max-width: 60%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            word-break: break-word;
+            clear: both;
+        }
+        .message.left {
+            align-self: flex-start;
+            background: #23272f;
+            color: #f5f5f5;
+            border-bottom-left-radius: 2px;
+        }
+        .message.right {
+            align-self: flex-end;
+            background: #29b6f6;
+            color: #fff;
+            border-bottom-right-radius: 2px;
+            font-weight: bold;
+            border: 2px solid #00e676;
+            box-shadow: 0 0 8px #00e67655;
+        }
+        .message.status {
+            background: transparent;
+            color: #ffc107;
+            font-style: italic;
+            align-self: center;
+            border-radius: 0;
+            padding: 0;
+            margin-bottom: 0;
+            margin-top: 5px;
+        }
+        .message b {
+            color: #81d4fa;
+        }
+        .footer {
+            padding: 10px 20px;
+            border-top: 1px solid #333;
+            background-color: #1e1e1e;
+        }
+        .button {
+            background-color: #00bcd4;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        .button:hover {
+            background-color: #008c9e;
+        }
+        input[type="file"] {
+            color: #ccc;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+        .message.left.typing::after {
+            content: '';
+            display: inline-block;
+            width: 7px;
+            height: 16px;
+            margin-left: 3px;
+            background: #81d4fa99;
+            border-radius: 2px;
+            animation: blink 1s steps(1) infinite;
+            vertical-align: -2px;
+        }
+        @keyframes blink {
+            0%, 49% { opacity: 0.2;}
+            50%, 100% { opacity: 1;}
+        }
+    </style>
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <div class="sidebar">
+        <h2>Uploaded PDFs</h2>
+        <ul id="pdf-list"></ul>
+        <hr />
+        <form id="upload-form">
+            <input type="file" name="file" />
+            <button class="button" type="submit">Upload</button>
+        </form>
+    </div>
+    <div class="main">
+        <div class="header">
+            <div class="button-group">
+                <button class="button" type="button" onclick="startTalking()">🎙️ Start Voice Mode</button>
+                <button class="button" type="button" onclick="stopTalking()" style="background: #e53935;">🛑 Stop</button>
+            </div>
+        </div>
+        <div class="chat" id="chat-box"></div>
+        <div class="footer">
+            <p>Say your question aloud after clicking "Start Voice Mode". Press "Stop" to end the conversation.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function refreshPDFList() {
+        const res = await fetch("/pdfs");
+        const data = await res.json();
+        const list = document.getElementById("pdf-list");
+        list.innerHTML = "";
+        data.pdfs.forEach(pdf => {
+            const li = document.createElement("li");
+            li.textContent = pdf;
+            list.appendChild(li);
+        });
+    }
+
+    document.getElementById("upload-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fileInput = e.target.querySelector("input[type='file']");
+        if (!fileInput.files[0]) return;
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        fileInput.value = ""; // Clear the input after upload
+
+        const res = await fetch("/upload", { method: "POST", body: formData });
+        if (res.ok) {
+            refreshPDFList();
+        } else if (res.status === 409) {
+            alert("Duplicate PDF content detected! This file is already uploaded.");
+        }
+    });
+
+    async function startTalking() {
+        await fetch("/start_talking", { method: "POST" });
+    }
+
+    async function stopTalking() {
+        await fetch("/stop", { method: "POST" });
+    }
+
+    const chatBox = document.getElementById("chat-box");
+
+    let currentTyping = null;
+
+    // Always finish any current typing effect
+    function finishTypingInstantly() {
+        if (currentTyping && currentTyping.timer) {
+            clearTimeout(currentTyping.timer);
+            if (currentTyping.element) {
+                currentTyping.element.innerHTML = currentTyping.prefixHTML + currentTyping.mainText;
+                currentTyping.element.classList.remove('typing');
+            }
+        }
+        currentTyping = null;
+    }
+
+    function typeText(element, prefixHTML, mainText, speed = 20, cb = null) {
+        finishTypingInstantly();
+        element.innerHTML = prefixHTML;
+        let i = 0;
+        element.classList.add('typing');
+        currentTyping = {
+            timer: null,
+            element: element,
+            prefixHTML: prefixHTML,
+            mainText: mainText,
+            cb: cb,
+            i: i
+        };
+        function typeChar() {
+            if (i < mainText.length) {
+                element.innerHTML = prefixHTML + mainText.substring(0, i + 1);
+                i++;
+                currentTyping.i = i;
+                currentTyping.timer = setTimeout(typeChar, speed);
+            } else {
+                element.classList.remove('typing');
+                currentTyping = null;
+                if (cb) cb();
+            }
+        }
+        typeChar();
+    }
+
+    function appendMessage(msg) {
+        const msgWrap = document.createElement("div");
+        msgWrap.className = "msg-container" +
+            (msg.side === "right" ? " right" : msg.side === "left" ? " left" : "");
+
+        if (msg.sender !== "System" && msg.timestamp) {
+            const tsDiv = document.createElement("div");
+            tsDiv.className = "msg-timestamp " + msg.side;
+            tsDiv.textContent = msg.timestamp;
+            msgWrap.appendChild(tsDiv);
+        }
+
+        const div = document.createElement("div");
+        if (msg.sender === "System") {
+            div.className = "message status";
+            div.innerHTML = msg.message;
+        } else if (msg.side === "right") {
+            div.className = "message right";
+            div.innerHTML = msg.message;
+        } else {
+            div.className = "message left";
+            // Animate only for agent/assistant messages
+            const senderPrefixMatch = msg.message.match(/^(.*?:<\/b>)/);
+            if (senderPrefixMatch) {
+                const prefixHTML = senderPrefixMatch[0] + "&nbsp;";
+                const mainText = msg.message.slice(senderPrefixMatch[0].length);
+                typeText(div, prefixHTML, mainText, 20);
+            } else {
+                typeText(div, "", msg.message, 20);
+            }
+        }
+        msgWrap.appendChild(div);
+        chatBox.appendChild(msgWrap);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    const socket = io();
+
+    socket.on('connect', function() {
+        console.log("Socket.IO connected!");
+    });
+
+    socket.on('new_message', function(msg) {
+        appendMessage(msg);
+    });
+
+    socket.on('interrupt_typing', function() {
+        finishTypingInstantly();
+    });
+
+    refreshPDFList();
+</script>
+</body>
+</html>

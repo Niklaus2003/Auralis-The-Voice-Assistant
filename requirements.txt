@@ -1,0 +1,16 @@
+flask
+flask_cors
+flask_socketio
+websocket-client
+requests
+soundfile
+sounddevice
+python-dotenv
+langchain-community
+langchain
+langchain-groq
+rapidfuzz
+faiss-cpu
+langchain-huggingface
+pymupdf
+sentence-transformers
